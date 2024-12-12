@@ -5,7 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e5c9b637-3876-4e2a-81fd-51fac6cc676b" name="Changes" comment="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings.">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/trading_bot.db" beforeDir="false" afterPath="$PROJECT_DIR$/trading_bot.db" afterDir="false" />
     </list>
@@ -24,18 +27,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "misaelvillegas97"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;misaelvillegas97&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/misaelvillegas97/btb-001.git",
-    "accountId": "1d2eae42-cb6a-4b60-9b50-c9e014620b60"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/misaelvillegas97/btb-001.git&quot;,
+    &quot;accountId&quot;: &quot;1d2eae42-cb6a-4b60-9b50-c9e014620b60&quot;
   }
-}]]></component>
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 4
 }</component>
@@ -49,6 +52,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
     "javascript.nodejs.core.library.configured.version": "22.12.0",
     "javascript.nodejs.core.library.typings.version": "22.10.2",
     "last_opened_file_path": "C:/Users/david/WebstormProjects/untitled/src",
@@ -132,7 +136,9 @@
       <updated>1733941221705</updated>
       <workItem from="1733941223139" duration="10499000" />
       <workItem from="1733955862235" duration="8269000" />
-      <workItem from="1733966932310" duration="2702000" />
+      <workItem from="1733966932310" duration="2911000" />
+      <workItem from="1734009358152" duration="6233000" />
+      <workItem from="1734019349158" duration="9208000" />
     </task>
     <task id="LOCAL-00001" summary="Initial commit">
       <option name="closed" value="true" />
@@ -158,7 +164,15 @@
       <option name="project" value="LOCAL" />
       <updated>1733967736343</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings.">
+      <option name="closed" value="true" />
+      <created>1733969906498</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1733969906498</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

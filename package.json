@@ -12,6 +12,7 @@
   "description": "",
   "dependencies": {
     "@koa/router": "^13.1.0",
+    "axios": "^1.7.9",
     "binance-api-node": "^0.12.9",
     "dotenv": "^16.4.7",
     "koa": "^2.15.3",
@@ -19,7 +20,8 @@
     "nodemon": "^3.1.7",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
-    "technicalindicators": "^3.1.0"
+    "technicalindicators": "^3.1.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/koa": "^2.15.0",
@@ -27,6 +29,7 @@
     "@types/koa-bodyparser": "^4.3.12",
     "@types/koa-router": "^7.4.8",
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   }
