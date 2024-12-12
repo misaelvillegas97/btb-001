@@ -408,6 +408,16 @@ app
 
 const PORT = 3002;
 app.listen(PORT, async () => {
+  // extract my public ip
+  const { exec } = require('child_process');
+  exec('curl ifconfig.me', (err, stdout, stderr) => {
+    if (err) {
+      console.error(err);
+      return;
+    }
+    console.log(`Public IP: ${ stdout }`);
+  });
+
   console.log('Initializing database...');
   await initializeDatabase();
   console.log(`Bot running on http://localhost:${ PORT }`);
