@@ -92,7 +92,7 @@ async function initializeDatabase() {
 // Variables de estado
 let position: 'LONG' | 'FLAT' = 'FLAT';
 let entryPrice: number | null = null;
-let balance = 1000;
+let balance_USD = 1000;
 let lastSignal = 'HOLD';
 let lastPrice: number | null = null;
 let justOpened = true;
@@ -143,7 +143,6 @@ function calculateIndicators(candles: any[]) {
   const highPrices = candles.map((c) => c.high);
   const lowPrices = candles.map((c) => c.low);
 
-  // Indicadores del primer bot
   const emaValues = EMA.calculate({ period: parseInt(EMA_PERIOD, 10), values: closePrices });
   const rsiValues = RSI.calculate({ period: parseInt(RSI_PERIOD, 10), values: closePrices });
   const macdValues = MACD.calculate({
@@ -167,7 +166,6 @@ function calculateIndicators(candles: any[]) {
   });
   const atrValues = ATR.calculate({ high: highPrices, low: lowPrices, close: closePrices, period: 14 });
 
-  // Cálculo de StochasticRSI del segundo bot
   const stochRsiValues = StochasticRSI.calculate({
     values: closePrices,
     rsiPeriod: parseInt(STOCHRSI_RSI_PERIOD, 10),
@@ -183,67 +181,35 @@ function calculateIndicators(candles: any[]) {
 function generateSignal(indicators: any) {
   const { rsiValues, macdValues, bbValues, stochValues, stochRsiValues, atrValues } = indicators;
 
-  if (!rsiValues || !macdValues || !bbValues || !stochValues || !stochRsiValues || !atrValues) return 'HOLD';
+  if (!rsiValues || !macdValues || !bbValues || !stochValues || atrValues.length === 0) return 'HOLD';
 
   const latestRSI = rsiValues[rsiValues.length - 1];
   const latestMACD = macdValues[macdValues.length - 1];
   const latestBB = bbValues[bbValues.length - 1];
 
-  // Stochastic RSI
-  let latestStochRSI: number | null = null;
-  if (stochRsiValues && stochRsiValues.length > 0) {
-    const lastStochRSIValue = stochRsiValues[stochRsiValues.length - 1];
-    latestStochRSI = lastStochRSIValue ? lastStochRSIValue.stochRSI : null;
-  }
+  const recentATRValues = atrValues.slice(-10);
+  const avgATR = recentATRValues.reduce((sum, value) => sum + value, 0) / recentATRValues.length;
+  const atrFactor = Math.max(1, avgATR / 50);
 
-  // Guardar analytics
-  if (latestStochRSI !== null) {
-    saveAnalytics('StochasticRSI', latestStochRSI);
-  }
-  if (latestRSI !== undefined) {
-    saveAnalytics('RSI', latestRSI);
-  }
+  const dynamicBuyLimit = 40 + atrFactor;
+  const dynamicSellLimit = 70 - atrFactor;
 
   if (!latestRSI || !latestMACD || !latestBB) return 'HOLD';
 
-  // Lógica combinada:
-  // Del primer bot: RSI < 55 + MACD > 0 => BUY; RSI > 70 + MACD < 0 => SELL
-  // Del segundo bot: StochRSI < STOCHRSI_BUY_LIMIT => BUY; StochRSI > STOCHRSI_SELL_LIMIT => SELL
+  const macdHistogram = latestMACD.MACD - latestMACD.signal;
+  const macdThreshold = 0.5 * Math.abs(latestMACD.MACD);
 
-  const recentATRValues = atrValues.slice(-10); // Últimos 10 valores de ATR
-  const avgATR = recentATRValues.reduce((sum, value) => sum + value, 0) / recentATRValues.length;
-  const atrFactor = Math.max(1, avgATR / 50); // Ajuste del factor basado en ATR
-  const dynamicBuyLimit = 50 + atrFactor; // Incremento del límite de compra
-  const dynamicSellLimit = 70 - atrFactor; // Reducción del límite de venta
-
-  // Señal base del primer bot
-  let baseSignal = 'HOLD';
-
-  if (latestRSI < dynamicBuyLimit && latestMACD.MACD > latestMACD.signal) {
-    console.log(`\x1b[32m BUY signal confirmed by RSI and MACD: RSI ${ latestRSI } < 50 and MACD ${ latestMACD.MACD } > Signal ${ latestMACD.signal } \x1b[0m`);
+  if (latestRSI < dynamicBuyLimit && macdHistogram > macdThreshold) {
+    console.log(`\x1b[32m Dynamic BUY signal: RSI ${ latestRSI } < ${ dynamicBuyLimit } and MACD Histogram ${ macdHistogram } > Threshold ${ macdThreshold } \x1b[0m`);
     return 'BUY';
   }
 
-  if (latestRSI > dynamicSellLimit && latestMACD.MACD < latestMACD.signal) {
-    console.log(`\x1b[31m SELL signal confirmed by RSI and MACD: RSI ${ latestRSI } > 60 and MACD ${ latestMACD.MACD } < Signal ${ latestMACD.signal } \x1b[0m`);
+  if (latestRSI > dynamicSellLimit && macdHistogram < -macdThreshold) {
+    console.log(`\x1b[31m Dynamic SELL signal: RSI ${ latestRSI } > ${ dynamicSellLimit } and MACD Histogram ${ macdHistogram } < -Threshold ${ macdThreshold } \x1b[0m`);
     return 'SELL';
   }
 
-  console.log(`\x1b[33m RSI and MACD signals: HOLD. RSI: ${ latestRSI }, MACD: ${ latestMACD.MACD }, Signal: ${ latestMACD.signal }, dynamicBuyLimit: ${ dynamicBuyLimit }, dynamicSellLimit: ${ dynamicSellLimit } \x1b[0m`);
-
-  // Incorporar la lógica StochRSI: si el StochRSI confirma la señal base, la aplicamos.
-  // Si no hay confirmación, mantenemos HOLD.
-  if (latestStochRSI !== null) {
-    if (baseSignal === 'BUY' && latestStochRSI < parseFloat(STOCHRSI_BUY_LIMIT)) {
-      console.log(`\x1b[32m BUY signal confirmed by StochRSI: StochRSI ${ latestStochRSI } < ${ STOCHRSI_BUY_LIMIT } \x1b[0m`);
-      return 'BUY';
-    } else if (baseSignal === 'SELL' && latestStochRSI > parseFloat(STOCHRSI_SELL_LIMIT)) {
-      console.log(`\x1b[31m SELL signal confirmed by StochRSI: StochRSI ${ latestStochRSI } > ${ STOCHRSI_SELL_LIMIT } \x1b[0m`);
-      return 'SELL';
-    }
-    console.log(`\x1b[33m StochRSI signal: HOLD. StochRSI: ${ latestStochRSI }, Buy Limit: ${ STOCHRSI_BUY_LIMIT }, Sell Limit: ${ STOCHRSI_SELL_LIMIT } \x1b[0m`);
-  }
-
+  console.log(`\x1b[33m HOLD: RSI ${ latestRSI } [buy ${ dynamicBuyLimit.toFixed(2) }] - [sell ${ dynamicSellLimit.toFixed(2) }], MACD Histogram ${ macdHistogram } [> ${ macdThreshold } or < -${ macdThreshold }] \x1b[0m`);
   return 'HOLD';
 }
 
@@ -257,7 +223,7 @@ async function realBuy(price: number) {
       type: OrderType.MARKET,
     }
 
-    console.log('Simulated BUY executed:', order);
+    console.log(`\x1b[42m Simulated BUY executed: ${ JSON.stringify(order) } \x1b[0m`);
     return;
   }
   try {
@@ -276,7 +242,7 @@ async function realBuy(price: number) {
 // Ejecutar orden de venta real en Binance (opcional)
 async function realSell(price: number) {
   if (SIMULATE_TRADES) {
-    console.log('Simulated SELL executed:', { symbol: SYMBOL, side: 'SELL', quantity: QUANTITY });
+    console.log(`\x1b[41m Simulated SELL executed: ${ JSON.stringify({ symbol: SYMBOL, side: 'SELL', quantity: QUANTITY }) } \x1b[0m`);
     return;
   }
   try {
@@ -296,14 +262,13 @@ async function realSell(price: number) {
 async function openPosition(price: number) {
   position = 'LONG';
   entryPrice = price;
-  // Opcionalmente ejecutar compra real
-  await realBuy(price);
 
-  await saveTransaction('BUY', price, parseFloat(QUANTITY), balance, 0);
+  await realBuy(price);
+  await saveTransaction('BUY', price, parseFloat(QUANTITY), balance_USD, 0);
+
   console.log(`Opened position at ${ price }`);
 
-  // Persist status
-  await saveStatus(position, entryPrice, 'BUY', balance);
+  await saveStatus(position, entryPrice, 'BUY', balance_USD);
 }
 
 // Cerrar posición (simulado o real)
@@ -311,11 +276,9 @@ async function closePosition(price: number) {
   if (!entryPrice) return;
 
   const pnl = (price - entryPrice) * parseFloat(QUANTITY);
-  balance += pnl;
+  balance_USD += pnl;
 
-  await saveTransaction('SELL', price, parseFloat(QUANTITY), balance, pnl);
-
-  // Opcionalmente ejecutar venta real
+  await saveTransaction('SELL', price, parseFloat(QUANTITY), balance_USD, pnl);
   await realSell(price);
 
   position = 'FLAT';
@@ -323,7 +286,7 @@ async function closePosition(price: number) {
 
   console.log(`Closed position at ${ price } with PnL: ${ pnl }`);
 
-  await saveStatus(position, entryPrice, 'SELL', balance);
+  await saveStatus(position, entryPrice, 'SELL', balance_USD);
 }
 
 
@@ -470,29 +433,7 @@ function connectOrderBookStream() {
   });
 }
 
-// Función para analizar el order book y devolver una señal
-// function analyzeOrderBook(): 'BUY' | 'SELL' | 'HOLD' {
-//   // Métrica simple: sumar todo el volumen de bids y de asks
-//   const totalBidsVolume = Object.values(orderBook.bids).reduce((acc, vol) => acc + vol, 0);
-//   const totalAsksVolume = Object.values(orderBook.asks).reduce((acc, vol) => acc + vol, 0);
-//
-//   // Ejemplo de lógica:
-//   // Si el volumen en bids es significativamente mayor al de asks, señal BUY.
-//   // Si el volumen en asks es significativamente mayor, señal SELL.
-//   // De lo contrario, HOLD.
-//   // Estas condiciones son arbitrarias y deben refinarse.
-//   if (totalBidsVolume > 1.5 * totalAsksVolume) {
-//     console.log(`Order book signal: BUY. Bids: ${ totalBidsVolume }, Asks: ${ totalAsksVolume }`);
-//     return 'BUY';
-//   } else if (totalAsksVolume > 1.5 * totalBidsVolume) {
-//     console.log(`Order book signal: SELL. Bids: ${ totalBidsVolume }, Asks: ${ totalAsksVolume }`);
-//     return 'SELL';
-//   } else {
-//     return 'HOLD';
-//   }
-// }
-
-function analyzeOrderBookRefined(candles: any[], atrValues: number[]): 'BUY' | 'SELL' | 'HOLD' {
+function analyzeOrderBookRefined(atrValues: number[]): 'BUY' | 'SELL' | 'HOLD' {
   // Número de niveles a analizar
   const LEVELS_TO_ANALYZE = 10;
 
@@ -503,7 +444,6 @@ function analyzeOrderBookRefined(candles: any[], atrValues: number[]): 'BUY' | '
   // Umbral base
   let baseThreshold = 1.5;
   // Ajustamos el umbral inversamente proporcional a la volatilidad: mayor ATR, mayor el umbral
-  // Por ejemplo, cuanto mayor el ATR, mayor la diferencia necesaria para señal BUY/SELL.
   const dynamicThreshold = baseThreshold + (avgATR / 100);
   // Este es un ejemplo arbitrario. Podrías afinar esta fórmula según tu criterio.
 
@@ -529,12 +469,9 @@ function analyzeOrderBookRefined(candles: any[], atrValues: number[]): 'BUY' | '
     const price = topBidPrices[i];
     const volume = orderBook.bids[price.toFixed(8)];
     const distance = (bestAsk - price) / bestAsk;
-    // distance mide qué tan lejos está el nivel del ask. Alternativamente,
-    // podrías usar (bestBid - price)/bestBid para medir cercanía al mejor bid.
-    // Aquí simplemente usamos la distancia relativa al bestAsk para ponderar.
 
-    const weight = 1 - distance; // niveles más cerca del ask obtienen mayor peso
-    weightedBidsVolume += volume * Math.max(weight, 0.1); // asegurar un mínimo de peso
+    const weight = 1 - distance;
+    weightedBidsVolume += volume * Math.max(weight, 0.1);
   }
 
   let weightedAsksVolume = 0;
@@ -542,12 +479,29 @@ function analyzeOrderBookRefined(candles: any[], atrValues: number[]): 'BUY' | '
     const price = topAskPrices[i];
     const volume = orderBook.asks[price.toFixed(8)];
     const distance = (price - bestBid) / bestBid;
-    // Similarmente, medimos distancia respecto al bestBid.
+
     const weight = 1 - distance;
     weightedAsksVolume += volume * Math.max(weight, 0.1);
   }
 
-  // Ahora usamos el volumen ponderado
+  // Agregar trailing stop para evitar pérdidas excesivas
+  let trailingStopPrice: number | null = null;
+
+  function updateTrailingStop(currentPrice: number) {
+    const stopLossBuffer = avgATR * 2; // Ejemplo: 2x ATR
+    if (trailingStopPrice === null || currentPrice - stopLossBuffer > trailingStopPrice) {
+      trailingStopPrice = currentPrice - stopLossBuffer;
+    }
+  }
+
+  const currentPrice = (bestBid + bestAsk) / 2; // Precio promedio actual
+  updateTrailingStop(currentPrice);
+
+  if (trailingStopPrice !== null && currentPrice < trailingStopPrice) {
+    return 'SELL';
+  }
+
+  // usamos el volumen ponderado
   // Si weightedBidsVolume > dynamicThreshold * weightedAsksVolume => BUY
   // Si weightedAsksVolume > dynamicThreshold * weightedBidsVolume => SELL
   // De lo contrario HOLD.
@@ -564,7 +518,6 @@ function analyzeOrderBookRefined(candles: any[], atrValues: number[]): 'BUY' | '
   }
 }
 
-// Análisis de mercado
 async function analyzeMarket() {
   console.log('\x1b[2mAnalyzing market...\x1b[0m');
   const candles = await getCandleData();
@@ -576,7 +529,7 @@ async function analyzeMarket() {
   const signal = generateSignal(indicators);
 
   // Señal basada en order book (volumen y liquidez)
-  const orderBookSignal = analyzeOrderBookRefined(candles, indicators.atrValues);
+  const orderBookSignal = analyzeOrderBookRefined(indicators.atrValues);
 
   // Combinar señales:
   // Por ejemplo, solo entrar en BUY si tanto indicadores como orderbook dan BUY
@@ -628,7 +581,7 @@ const app = new Koa();
 const router = new Router();
 
 router.get('/status', async (ctx) => {
-  ctx.body = { position, entryPrice, lastSignal, balance };
+  ctx.body = { position, entryPrice, lastSignal, balance: balance_USD };
 });
 
 router.get('/transactions', async (ctx) => {
@@ -676,7 +629,7 @@ app.listen(PORT, async () => {
       position = status[0].position;
       entryPrice = status[0].entryPrice;
       lastSignal = status[0].lastSignal;
-      balance = status[0].balance;
+      balance_USD = status[0].balance;
     } else {
       console.log('No previous status found');
     }
