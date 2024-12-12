@@ -4,7 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="e5c9b637-3876-4e2a-81fd-51fac6cc676b" name="Changes" comment="Initial commit">
+    <list default="true" id="e5c9b637-3876-4e2a-81fd-51fac6cc676b" name="Changes" comment="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings.">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/index.ts" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/trading_bot.db" beforeDir="false" afterPath="$PROJECT_DIR$/trading_bot.db" afterDir="false" />
     </list>
@@ -131,7 +132,7 @@
       <updated>1733941221705</updated>
       <workItem from="1733941223139" duration="10499000" />
       <workItem from="1733955862235" duration="8269000" />
-      <workItem from="1733966932310" duration="738000" />
+      <workItem from="1733966932310" duration="2702000" />
     </task>
     <task id="LOCAL-00001" summary="Initial commit">
       <option name="closed" value="true" />
@@ -149,7 +150,15 @@
       <option name="project" value="LOCAL" />
       <updated>1733967426152</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings.">
+      <option name="closed" value="true" />
+      <created>1733967736343</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1733967736343</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -169,7 +178,8 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <MESSAGE value="Initial commit" />
-    <option name="LAST_COMMIT_MESSAGE" value="Initial commit" />
+    <MESSAGE value="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings." />
+    <option name="LAST_COMMIT_MESSAGE" value="Add public IP extraction to server startup logging&#10;&#10;This update introduces a function during server startup to fetch and log the machine's public IP using a shell command. Additionally, minor changes were made to the `.idea/workspace.xml` file to track new local tasks and update configuration settings." />
     <option name="OPTIMIZE_IMPORTS_BEFORE_PROJECT_COMMIT" value="true" />
     <option name="REFORMAT_BEFORE_PROJECT_COMMIT" value="true" />
     <option name="REARRANGE_BEFORE_PROJECT_COMMIT" value="true" />

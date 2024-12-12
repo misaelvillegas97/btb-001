@@ -48,79 +48,59 @@ async function initializeDatabase() {
     driver: sqlite3.Database,
   });
 
-  console.log('Initialized database');
-
   // Unificamos el schema, incluyendo todos los campos necesarios.
   // Mantendremos la tabla transactions y analytics del primer bot.
+  // language=SQL format=false
   await db.exec(`
       CREATE TABLE IF NOT EXISTS transactions
+      (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          operation TEXT NOT NULL, -- BUY o SELL
+          symbol TEXT NOT NULL,
+          price REAL NOT NULL,
+          quantity REAL NOT NULL,
+          balance REAL NOT NULL,
+          pnl REAL NOT NULL,
+          time TEXT NOT NULL
+      );
+  `);
+
+  // language=SQL format=false
+  await db.exec(`
+      CREATE TABLE IF NOT EXISTS analytics
+      (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          indicator TEXT NOT NULL,
+          value REAL NOT NULL,
+          timestamp TEXT NOT NULL
+      );
+  `);
+
+  await db.exec(`
+      CREATE TABLE IF NOT EXISTS status
       (
           id
           INTEGER
           PRIMARY
           KEY
           AUTOINCREMENT,
-          operation
-          TEXT
-          NOT
-          NULL, -- BUY o SELL
-          symbol
+          position
           TEXT
           NOT
           NULL,
-          price
-          REAL
-          NOT
-          NULL,
-          quantity
-          REAL
+          entryPrice
+          REAL,
+          lastSignal
+          TEXT
           NOT
           NULL,
           balance
           REAL
           NOT
-          NULL,
-          pnl
-          REAL
-          NOT
-          NULL,
-          time
-          TEXT
-          NOT
           NULL
       );
   `);
-
-  console.log('Initialized transactions table');
-
-  await db.exec(`
-      CREATE TABLE IF NOT EXISTS analytics
-      (
-          id
-          INTEGER
-          PRIMARY
-          KEY
-          AUTOINCREMENT,
-          symbol
-          TEXT
-          NOT
-          NULL,
-          indicator
-          TEXT
-          NOT
-          NULL,
-          value
-          REAL
-          NOT
-          NULL,
-          timestamp
-          TEXT
-          NOT
-          NULL
-      );
-  `);
-
-  console.log('Initialized analytics table');
 }
 
 // Variables de estado
@@ -129,6 +109,7 @@ let entryPrice: number | null = null;
 let balance = 1000;
 let lastSignal = 'HOLD';
 let lastPrice: number | null = null;
+let justOpened = true;
 
 // Función para registrar transacciones
 async function saveTransaction(
@@ -152,6 +133,10 @@ async function saveAnalytics(indicator: string, value: number) {
      VALUES (?, ?, ?, ?)`,
     [ SYMBOL, indicator, value, new Date().toISOString() ],
   );
+}
+
+async function saveStatus() {
+  await db.run(`INSERT INTO status (position, entryPrice, lastSignal, balance)`)
 }
 
 // Obtener datos de velas
@@ -296,8 +281,8 @@ async function realBuy(price: number) {
 
 // Ejecutar orden de venta real en Binance (opcional)
 async function realSell(price: number) {
-  if (!BINANCE_API_KEY || !BINANCE_API_SECRET) {
-    console.log('No API keys, simulating sell...');
+  if (SIMULATE_TRADES) {
+    console.log('Simulated SELL executed:', { symbol: SYMBOL, side: 'SELL', quantity: QUANTITY });
     return;
   }
   try {
@@ -322,6 +307,9 @@ async function openPosition(price: number) {
 
   await saveTransaction('BUY', price, parseFloat(QUANTITY), balance, 0);
   console.log(`Opened position at ${ price }`);
+
+  // Persist status
+  await saveStatus();
 }
 
 // Cerrar posición (simulado o real)
@@ -340,6 +328,8 @@ async function closePosition(price: number) {
   entryPrice = null;
 
   console.log(`Closed position at ${ price } with PnL: ${ pnl }`);
+
+  await saveStatus();
 }
 
 // Análisis de mercado
@@ -418,8 +408,21 @@ app.listen(PORT, async () => {
     console.log(`Public IP: ${ stdout }`);
   });
 
-  console.log('Initializing database...');
   await initializeDatabase();
+
+  if (justOpened) {
+    const status = await db.run(`SELECT *
+                                 FROM status
+                                 ORDER BY id DESC LIMIT 1`);
+
+    if (status) {
+      position = status.position;
+      entryPrice = status.entryPrice;
+      lastSignal = status.lastSignal;
+      balance = status.balance;
+    }
+  }
+
   console.log(`Bot running on http://localhost:${ PORT }`);
   setInterval(analyzeMarket, parseInt(CHECK_INTERVAL, 10));
 });
