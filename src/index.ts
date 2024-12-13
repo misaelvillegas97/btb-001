@@ -73,7 +73,8 @@ async function initializeDatabase() {
                      position TEXT NOT NULL,
                      entryPrice REAL,
                      lastSignal TEXT NOT NULL,
-                     balance REAL NOT NULL
+                     balance_USD REAL NOT NULL,
+                     balance_BTC REAL NOT NULL
                  );
   `);
 
@@ -92,7 +93,8 @@ async function initializeDatabase() {
 // Variables de estado
 let position: 'LONG' | 'FLAT' = 'FLAT';
 let entryPrice: number | null = null;
-let balance_USD = 1000;
+let balance_USD = 300;
+let balance_BTC = 0;
 let lastSignal = 'HOLD';
 let lastPrice: number | null = null;
 let justOpened = true;
@@ -121,9 +123,9 @@ async function saveAnalytics(indicator: string, value: number) {
   );
 }
 
-async function saveStatus(position = 'FLAT', entryPrice = null, lastSignal = 'HOLD', balance = 1000) {
-  await db.run(`INSERT INTO status (position, entryPrice, lastSignal, balance)
-                VALUES (?, ?, ?, ?)`, [ position, entryPrice, lastSignal, balance ]);
+async function saveStatus(position = 'FLAT', entryPrice = null, lastSignal = 'HOLD', balance = balance_USD, balance2 = balance_BTC) {
+  await db.run(`INSERT INTO status (position, entryPrice, lastSignal, balance_USD, balance_BTC)
+                VALUES (?, ?, ?, ?, ?)`, [ position, entryPrice, lastSignal, balance, balance2 ]);
 }
 
 // Obtener datos de velas
@@ -219,7 +221,7 @@ async function realBuy(price: number) {
     const order = {
       symbol: SYMBOL,
       side: 'BUY',
-      quantity: QUANTITY,
+      quantity: balance_BTC.toString(),
       type: OrderType.MARKET,
     }
 
@@ -230,7 +232,7 @@ async function realBuy(price: number) {
     const order = await client.order({
       symbol: SYMBOL,
       side: 'BUY',
-      quantity: QUANTITY,
+      quantity: balance_BTC.toString(),
       type: OrderType.MARKET,
     });
     console.log('Real BUY executed:', order);
@@ -242,14 +244,14 @@ async function realBuy(price: number) {
 // Ejecutar orden de venta real en Binance (opcional)
 async function realSell(price: number) {
   if (SIMULATE_TRADES) {
-    console.log(`\x1b[41m Simulated SELL executed: ${ JSON.stringify({ symbol: SYMBOL, side: 'SELL', quantity: QUANTITY }) } \x1b[0m`);
+    console.log(`\x1b[41m Simulated SELL executed: ${ JSON.stringify({ symbol: SYMBOL, side: 'SELL', quantity: balance_BTC }) } \x1b[0m`);
     return;
   }
   try {
     const order = await client.order({
       symbol: SYMBOL,
       side: 'SELL',
-      quantity: QUANTITY,
+      quantity: balance_BTC.toString(),
       type: OrderType.MARKET,
     });
     console.log('Real SELL executed:', order);
@@ -262,31 +264,34 @@ async function realSell(price: number) {
 async function openPosition(price: number) {
   position = 'LONG';
   entryPrice = price;
+  balance_BTC = balance_USD / price;
+  balance_USD = 0;
 
   await realBuy(price);
-  await saveTransaction('BUY', price, parseFloat(QUANTITY), balance_USD, 0);
+  await saveTransaction('BUY', price, parseFloat(balance_USD.toString()), balance_USD, 0);
 
   console.log(`Opened position at ${ price }`);
 
-  await saveStatus(position, entryPrice, 'BUY', balance_USD);
+  await saveStatus(position, entryPrice, 'BUY', balance_USD, balance_BTC);
 }
 
 // Cerrar posición (simulado o real)
 async function closePosition(price: number) {
   if (!entryPrice) return;
 
-  const pnl = (price - entryPrice) * parseFloat(QUANTITY);
-  balance_USD += pnl;
+  const pnl = (price - entryPrice) * parseFloat(balance_BTC.toString());
+  balance_USD = price * parseFloat(balance_BTC.toString());
 
-  await saveTransaction('SELL', price, parseFloat(QUANTITY), balance_USD, pnl);
+  await saveTransaction('SELL', price, balance_BTC, balance_USD, pnl);
   await realSell(price);
 
+  balance_BTC = 0;
   position = 'FLAT';
   entryPrice = null;
 
   console.log(`Closed position at ${ price } with PnL: ${ pnl }`);
 
-  await saveStatus(position, entryPrice, 'SELL', balance_USD);
+  await saveStatus(position, entryPrice, 'SELL', balance_USD, balance_BTC);
 }
 
 
@@ -581,7 +586,57 @@ const app = new Koa();
 const router = new Router();
 
 router.get('/status', async (ctx) => {
-  ctx.body = { position, entryPrice, lastSignal, balance: balance_USD };
+  let profitability = await db.all(`
+      WITH hourlyData AS (SELECT strftime('%Y-%m-%d %H:00:00', time) AS hour, SUM (pnl) AS profitPerHour
+      FROM transactions
+      WHERE operation = 'SELL'
+      GROUP BY strftime('%Y-%m-%d %H:00:00', time)
+          ),
+          initialBalanceData AS (
+      SELECT
+          strftime('%Y-%m-%d %H:00:00', time) AS hour, MIN (balance) AS initialBalance
+      FROM transactions
+      WHERE operation = 'SELL'
+      GROUP BY strftime('%Y-%m-%d %H:00:00', time)
+          ),
+          finalBalanceData AS (
+      SELECT
+          strftime('%Y-%m-%d %H:00:00', time) AS hour, MAX (balance) AS finalBalance
+      FROM transactions
+      WHERE operation = 'SELL'
+      GROUP BY strftime('%Y-%m-%d %H:00:00', time)
+          )
+      SELECT hd.hour,
+             hd.profitPerHour,
+             ibd.initialBalance,
+             fbd.finalBalance,
+             CASE
+                 WHEN ibd.initialBalance > 0 THEN (hd.profitPerHour / ibd.initialBalance) * 100
+                 ELSE NULL
+                 END                                               AS profitPercentage,
+             (SELECT AVG(pnl)
+              FROM transactions
+              WHERE operation = 'SELL'
+                AND pnl > 0
+                AND strftime('%Y-%m-%d %H:00:00', time) = hd.hour) AS averagePositive,
+             (SELECT AVG(pnl)
+              FROM transactions
+              WHERE operation = 'SELL'
+                AND pnl < 0
+                AND strftime('%Y-%m-%d %H:00:00', time) = hd.hour) AS averageNegative
+      FROM hourlyData hd
+               LEFT JOIN initialBalanceData ibd
+                         ON hd.hour = ibd.hour
+               LEFT JOIN finalBalanceData fbd
+                         ON hd.hour = fbd.hour
+      ORDER BY hd.hour;
+  `)
+
+  profitability = profitability.map((profit => ({
+    hour: new Date(profit.hour).toLocaleString(),
+    ...profit
+  })))
+  ctx.body = { position, entryPrice, lastSignal, balance: balance_USD, btc: balance_BTC, profitability };
 });
 
 router.get('/transactions', async (ctx) => {
@@ -629,11 +684,19 @@ app.listen(PORT, async () => {
       position = status[0].position;
       entryPrice = status[0].entryPrice;
       lastSignal = status[0].lastSignal;
-      balance_USD = status[0].balance;
+      balance_USD = status[0].balance_USD;
+      balance_BTC = status[0].balance_BTC;
     } else {
       console.log('No previous status found');
     }
   }
+
+  // Cargar balances desde binance
+  const accountInfo = await client.accountInfo();
+  balance_BTC = parseFloat(accountInfo.balances.find((b) => b.asset === 'BTC')?.free || '0');
+  balance_USD = parseFloat(accountInfo.balances.find((b) => b.asset === 'USDT')?.free || '0');
+
+  console.log('Current balances:', balance_BTC, 'BTC', balance_USD, 'USD');
 
   console.log(`Bot running on http://localhost:${ PORT }`);
   setInterval(analyzeMarket, parseInt(CHECK_INTERVAL, 10));
