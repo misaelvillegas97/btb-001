@@ -57,6 +57,7 @@ async function initializeDatabase() {
                  (
                      id INTEGER PRIMARY KEY AUTOINCREMENT,
                      operation TEXT NOT NULL, -- BUY o SELL
+                     pending BOOLEAN DEFAULT FALSE,
                      symbol TEXT NOT NULL,
                      price REAL NOT NULL,
                      quantity REAL NOT NULL,
@@ -98,6 +99,7 @@ let balance_BTC = 0;
 let lastSignal = 'HOLD';
 let lastPrice: number | null = null;
 let justOpened = true;
+const COMMISSION_BTC = 0.00000030; // 30 satoshis
 
 // Función para registrar transacciones
 async function saveTransaction(
@@ -106,26 +108,39 @@ async function saveTransaction(
   quantity: number,
   balance: number,
   pnl: number,
+  pending: boolean = true
 ) {
   await db.run(
-    `INSERT INTO transactions (operation, symbol, price, quantity, balance, pnl, time)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [ operation, SYMBOL, price, quantity, balance, pnl, new Date().toISOString() ],
-  );
-}
-
-// Función para guardar análisis
-async function saveAnalytics(indicator: string, value: number) {
-  await db.run(
-    `INSERT INTO analytics (symbol, indicator, value, timestamp)
-     VALUES (?, ?, ?, ?)`,
-    [ SYMBOL, indicator, value, new Date().toISOString() ],
+    `INSERT INTO transactions (operation, pending, symbol, price, quantity, balance, pnl, time)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [ operation, pending, SYMBOL, price, quantity, balance, pnl, new Date().toISOString() ],
   );
 }
 
 async function saveStatus(position = 'FLAT', entryPrice = null, lastSignal = 'HOLD', balance = balance_USD, balance2 = balance_BTC) {
   await db.run(`INSERT INTO status (position, entryPrice, lastSignal, balance_USD, balance_BTC)
                 VALUES (?, ?, ?, ?, ?)`, [ position, entryPrice, lastSignal, balance, balance2 ]);
+}
+
+async function getMarketRules(symbol: string) {
+  const exchangeInfo = await client.exchangeInfo();
+  const symbolInfo = exchangeInfo.symbols.find((s) => s.symbol === symbol);
+  const lotSizeFilter = symbolInfo.filters.find((f) => f.filterType === 'LOT_SIZE');
+
+  return {
+    minQty: parseFloat(lotSizeFilter.minQty),
+    stepSize: parseFloat(lotSizeFilter.stepSize),
+    maxQty: parseFloat(lotSizeFilter.maxQty),
+  };
+}
+
+function adjustQuantity(quantity: number, minQty: number, stepSize: number): number {
+  if (quantity < minQty) {
+    throw new Error(`Quantity ${ quantity } is below the minimum allowed: ${ minQty }`);
+  }
+
+  // Ajustar al múltiplo más cercano del `stepSize`
+  return Math.floor(quantity / stepSize) * stepSize;
 }
 
 // Obtener datos de velas
@@ -217,11 +232,23 @@ function generateSignal(indicators: any) {
 
 // Ejecutar orden de compra real en Binance (opcional)
 async function realBuy(price: number) {
-  if (SIMULATE_TRADES) {
+  // Estimar comisión (0.1% del monto total)
+  const commissionRate = 0.001; // 0.1%
+  const maxSpendableUSDT = balance_USD * (1 - commissionRate);
+
+  // Calcular cantidad de BTC a comprar
+  let quantityBTC = maxSpendableUSDT / price;
+
+  // Asegurar que la cantidad cumple con LOT_SIZE
+  const { minQty, stepSize } = await getMarketRules(SYMBOL);
+
+  quantityBTC = adjustQuantity(quantityBTC, minQty, stepSize);
+
+  if (SIMULATE_TRADES === 'true') {
     const order = {
       symbol: SYMBOL,
       side: 'BUY',
-      quantity: balance_BTC.toString(),
+      quantity: balance_USD.toFixed(8),
       type: OrderType.MARKET,
     }
 
@@ -229,31 +256,41 @@ async function realBuy(price: number) {
     return;
   }
   try {
+
+    console.log(`Buying ${ quantityBTC.toFixed(8) } BTC (${ maxSpendableUSDT.toFixed(2) } USDT) at market price...`);
     const order = await client.order({
       symbol: SYMBOL,
       side: 'BUY',
-      quantity: balance_BTC.toString(),
+      quantity: quantityBTC.toFixed(8),
       type: OrderType.MARKET,
     });
     console.log('Real BUY executed:', order);
   } catch ( err ) {
-    console.error('Error executing real buy:', err);
+    console.error('Error executing real buy:', err, balance_USD.toFixed(4));
   }
 }
 
 // Ejecutar orden de venta real en Binance (opcional)
 async function realSell(price: number) {
-  if (SIMULATE_TRADES) {
-    console.log(`\x1b[41m Simulated SELL executed: ${ JSON.stringify({ symbol: SYMBOL, side: 'SELL', quantity: balance_BTC }) } \x1b[0m`);
-    return;
-  }
   try {
+    const { minQty, stepSize } = await getMarketRules(SYMBOL);
+
+    // Ajustar cantidad
+    const adjustedQuantity = adjustQuantity(balance_BTC, minQty, stepSize); // Dejamos un 1% de margen
+
+    if (SIMULATE_TRADES === 'true') {
+      console.log(`Simulated SELL executed: ${ JSON.stringify({ symbol: SYMBOL, side: 'SELL', quantity: adjustedQuantity }) }`);
+      return;
+    }
+
+    console.log(`Selling ${ adjustedQuantity } BTC at market price...`);
     const order = await client.order({
       symbol: SYMBOL,
       side: 'SELL',
-      quantity: balance_BTC.toString(),
+      quantity: adjustedQuantity.toFixed(8),
       type: OrderType.MARKET,
     });
+
     console.log('Real SELL executed:', order);
   } catch ( err ) {
     console.error('Error executing real sell:', err);
@@ -262,13 +299,13 @@ async function realSell(price: number) {
 
 // Abrir posición (simulado o real)
 async function openPosition(price: number) {
-  position = 'LONG';
-  entryPrice = price;
-  balance_BTC = balance_USD / price;
-  balance_USD = 0;
+  realBuy(price).then(() => {
+    position = 'LONG';
+    entryPrice = price;
+  });
 
-  await realBuy(price);
   await saveTransaction('BUY', price, parseFloat(balance_USD.toString()), balance_USD, 0);
+
 
   console.log(`Opened position at ${ price }`);
 
@@ -279,17 +316,18 @@ async function openPosition(price: number) {
 async function closePosition(price: number) {
   if (!entryPrice) return;
 
-  const pnl = (price - entryPrice) * parseFloat(balance_BTC.toString());
-  balance_USD = price * parseFloat(balance_BTC.toString());
+  const pnl = (price - entryPrice) * balance_BTC;
+  const commission = COMMISSION_BTC * price;
+  balance_USD = price * balance_BTC;
 
   await saveTransaction('SELL', price, balance_BTC, balance_USD, pnl);
-  await realSell(price);
+  realSell(price).then(() => {
+    position = 'FLAT';
+    entryPrice = null;
+  });
 
-  balance_BTC = 0;
-  position = 'FLAT';
-  entryPrice = null;
 
-  console.log(`Closed position at ${ price } with PnL: ${ pnl }`);
+  console.log(`Closed position at ${ price } with PnL: ${ pnl }, commission: ${ commission }`);
 
   await saveStatus(position, entryPrice, 'SELL', balance_USD, balance_BTC);
 }
@@ -494,8 +532,9 @@ function analyzeOrderBookRefined(atrValues: number[]): 'BUY' | 'SELL' | 'HOLD' {
 
   function updateTrailingStop(currentPrice: number) {
     const stopLossBuffer = avgATR * 2; // Ejemplo: 2x ATR
-    if (trailingStopPrice === null || currentPrice - stopLossBuffer > trailingStopPrice) {
-      trailingStopPrice = currentPrice - stopLossBuffer;
+    const adjustedStopLossBuffer = stopLossBuffer + (COMMISSION_BTC * currentPrice); // Ajustar por comisión
+    if (trailingStopPrice === null || currentPrice - adjustedStopLossBuffer > trailingStopPrice) {
+      trailingStopPrice = currentPrice - adjustedStopLossBuffer;
     }
   }
 
@@ -634,7 +673,12 @@ router.get('/status', async (ctx) => {
 
   profitability = profitability.map((profit => ({
     hour: new Date(profit.hour).toLocaleString(),
-    ...profit
+    profitPerHour: parseFloat(profit.profitPerHour.toString()).toFixed(2),
+    profitPercentage: parseFloat(profit.profitPercentage.toString()).toFixed(2),
+    initialBalance: parseFloat(profit.initialBalance.toString()).toFixed(2),
+    finalBalance: parseFloat(profit.finalBalance.toString()).toFixed(2),
+    averagePositive: parseFloat(profit.averagePositive.toString()).toFixed(2),
+    averageNegative: parseFloat(profit.averageNegative.toString()).toFixed(2),
   })))
   ctx.body = { position, entryPrice, lastSignal, balance: balance_USD, btc: balance_BTC, profitability };
 });
@@ -662,6 +706,23 @@ function extractIp() {
   });
 }
 
+async function loadBinanceBalances(start = false) {
+  const accountInfo = await client.accountInfo();
+  balance_BTC = parseFloat(accountInfo.balances.find((b) => b.asset === 'BTC')?.free || '0');
+  balance_USD = parseFloat(accountInfo.balances.find((b) => b.asset === 'USDT')?.free || '0');
+
+  if (balance_USD < 2 && start) {
+    position = 'LONG';
+    const avgSymbol = await client.avgPrice({ symbol: SYMBOL });
+    if ("price" in avgSymbol) {
+      entryPrice = parseFloat(avgSymbol.price);
+    }
+  } else if (start) {
+    position = 'FLAT';
+    entryPrice = null;
+  }
+}
+
 app
   .use(bodyParser())
   .use(router.routes())
@@ -684,20 +745,18 @@ app.listen(PORT, async () => {
       position = status[0].position;
       entryPrice = status[0].entryPrice;
       lastSignal = status[0].lastSignal;
-      balance_USD = status[0].balance_USD;
-      balance_BTC = status[0].balance_BTC;
     } else {
       console.log('No previous status found');
     }
   }
 
-  // Cargar balances desde binance
-  const accountInfo = await client.accountInfo();
-  balance_BTC = parseFloat(accountInfo.balances.find((b) => b.asset === 'BTC')?.free || '0');
-  balance_USD = parseFloat(accountInfo.balances.find((b) => b.asset === 'USDT')?.free || '0');
+  await loadBinanceBalances(true);
 
-  console.log('Current balances:', balance_BTC, 'BTC', balance_USD, 'USD');
+  console.log(balance_BTC, balance_USD);
 
   console.log(`Bot running on http://localhost:${ PORT }`);
-  setInterval(analyzeMarket, parseInt(CHECK_INTERVAL, 10));
+  setInterval(async () => {
+    await loadBinanceBalances();
+    analyzeMarket();
+  }, parseInt(CHECK_INTERVAL, 10));
 });
